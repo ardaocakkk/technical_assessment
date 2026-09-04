@@ -11,14 +11,29 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-function extractErrorMessage(error: unknown): string {
+/**
+ * Carries the HTTP status alongside the message so callers can tell a definite
+ * client error (4xx — retrying won't help) from a transient failure (network
+ * error with no response at all, or a 5xx) worth retrying. `status` is
+ * `undefined` when the request never got a response (e.g. the backend is
+ * still starting up — see useHistory's retry logic).
+ */
+export class ApiRequestError extends Error {
+  readonly status?: number;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.status = status;
+  }
+}
+
+function toApiRequestError(error: unknown): ApiRequestError {
   if (axios.isAxiosError(error)) {
     const apiError = error.response?.data as ApiError | undefined;
-    if (apiError?.message) {
-      return apiError.message;
-    }
+    return new ApiRequestError(apiError?.message ?? 'Unexpected error', error.response?.status);
   }
-  return 'Unexpected error';
+  return new ApiRequestError('Unexpected error');
 }
 
 export async function calculate(request: CalculationRequest): Promise<CalculationResponse> {
@@ -26,7 +41,7 @@ export async function calculate(request: CalculationRequest): Promise<Calculatio
     const response = await apiClient.post<CalculationResponse>('/api/calculate', request);
     return response.data;
   } catch (error) {
-    throw new Error(extractErrorMessage(error));
+    throw toApiRequestError(error);
   }
 }
 
@@ -35,6 +50,6 @@ export async function fetchHistory(): Promise<HistoryEntry[]> {
     const response = await apiClient.get<HistoryEntry[]>('/api/history');
     return response.data;
   } catch (error) {
-    throw new Error(extractErrorMessage(error));
+    throw toApiRequestError(error);
   }
 }
