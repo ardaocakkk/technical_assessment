@@ -6,7 +6,7 @@
 
 **Architecture:** Spring Boot REST backend exposes a single `POST /api/calculate` endpoint backed by a Strategy pattern (one class per arithmetic operation, auto-wired into a lookup map — no branching logic). React frontend uses Zustand for local input/UI state and TanStack Query (`useMutation`) for the server call, styled with Tailwind CSS. Both layers are unit tested; backend coverage is measured with JaCoCo. Docker Compose runs both together.
 
-**Tech Stack:** Java 17, Spring Boot 3.3.x (web, validation), Lombok, JUnit 5 + Mockito, JaCoCo, Maven · React 18 + TypeScript, Vite, Zustand, TanStack Query v5, Tailwind CSS, Vitest + React Testing Library · Docker + Docker Compose
+**Tech Stack:** Java 17, Spring Boot 4.0.x (web, validation), Lombok, JUnit 5 + Mockito, JaCoCo, Maven · React 18 + TypeScript, Vite, Zustand, TanStack Query v5, Tailwind CSS, Vitest + React Testing Library · Docker + Docker Compose
 
 **Spec:** `docs/superpowers/specs/2026-09-04-fullstack-calculator-design.md`
 
@@ -44,7 +44,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.3.4</version>
+    <version>4.0.0</version>
     <relativePath/>
   </parent>
 
@@ -1927,11 +1927,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactElement } from 'react';
 import { Calculator } from './Calculator';
 import * as calculatorApi from '../../api/calculatorApi';
 import { useCalculatorStore } from '../../store/calculatorStore';
 
-function renderWithClient(ui: React.ReactElement) {
+function renderWithClient(ui: ReactElement) {
   const queryClient = new QueryClient();
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
@@ -2209,7 +2210,7 @@ A calculator with a Spring Boot REST backend and a React + TypeScript frontend.
 
 ## Tech stack
 
-- **Backend:** Java 17, Spring Boot 3, Maven, JUnit 5 + Mockito, JaCoCo
+- **Backend:** Java 17, Spring Boot 4, Maven, JUnit 5 + Mockito, JaCoCo
 - **Frontend:** React 18, TypeScript, Vite, Zustand, TanStack Query, Tailwind CSS, Vitest + React Testing Library
 - **Infra:** Docker + Docker Compose
 
