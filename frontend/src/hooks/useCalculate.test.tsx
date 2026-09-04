@@ -27,4 +27,19 @@ describe('useCalculate', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual({ result: 5 });
   });
+
+  it('invalidates the history query on success', async () => {
+    vi.spyOn(calculatorApi, 'calculate').mockResolvedValue({ result: 5 });
+    const queryClient = new QueryClient();
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useCalculate(), { wrapper });
+    result.current.mutate({ operation: 'ADD', operandA: 2, operandB: 3 });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['history'] });
+  });
 });
