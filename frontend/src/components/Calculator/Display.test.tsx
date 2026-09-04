@@ -3,9 +3,9 @@ import { render, screen } from '@testing-library/react';
 import { Display } from './Display';
 
 describe('Display', () => {
-  it('renders the current expression when no result yet', () => {
+  it('renders the current expression using the operator symbol, not the enum name', () => {
     render(<Display operandA="2" operation="ADD" operandB="3" result={null} error={null} />);
-    expect(screen.getByTestId('display')).toHaveTextContent('2 ADD 3');
+    expect(screen.getByTestId('display')).toHaveTextContent('2 + 3');
   });
 
   it('renders the result when present', () => {

@@ -100,4 +100,35 @@ describe('Calculator', () => {
 
     expect(screen.getByTestId('display')).toHaveTextContent('1.59');
   });
+
+  it('supports entering a calculation via the keyboard', async () => {
+    vi.spyOn(calculatorApi, 'calculate').mockResolvedValue({ result: 5 });
+    renderWithClient(<Calculator />);
+
+    await userEvent.keyboard('2+3{Enter}');
+
+    await waitFor(() => expect(screen.getByTestId('display')).toHaveTextContent('5'));
+    expect(calculatorApi.calculate).toHaveBeenCalledWith({ operation: 'ADD', operandA: 2, operandB: 3 });
+  });
+
+  it('clears via the Escape key', async () => {
+    renderWithClient(<Calculator />);
+
+    await userEvent.keyboard('7');
+    expect(screen.getByTestId('display')).toHaveTextContent('7');
+
+    await userEvent.keyboard('{Escape}');
+
+    expect(screen.getByTestId('display')).toHaveTextContent('0');
+  });
+
+  it('supports decimal points and the multiply/divide symbols via the keyboard', async () => {
+    vi.spyOn(calculatorApi, 'calculate').mockResolvedValue({ result: 20 });
+    renderWithClient(<Calculator />);
+
+    await userEvent.keyboard('1.5*4{Enter}');
+
+    await waitFor(() => expect(screen.getByTestId('display')).toHaveTextContent('20'));
+    expect(calculatorApi.calculate).toHaveBeenCalledWith({ operation: 'MULTIPLY', operandA: 1.5, operandB: 4 });
+  });
 });

@@ -1,6 +1,8 @@
+import { OPERATION_SYMBOLS, type OperationType } from '../../types/calculator';
+
 interface DisplayProps {
   operandA: string;
-  operation: string | null;
+  operation: OperationType | null;
   operandB: string;
   result: string | null;
   error: string | null;
@@ -13,7 +15,8 @@ export function Display({ operandA, operation, operandB, result, error }: Displa
   } else if (result !== null) {
     content = result;
   } else {
-    content = [operandA || '0', operation, operandB].filter(Boolean).join(' ');
+    const operationSymbol = operation ? OPERATION_SYMBOLS[operation] : null;
+    content = [operandA || '0', operationSymbol, operandB].filter(Boolean).join(' ');
   }
 
   return (

@@ -29,6 +29,17 @@ export function isUnaryOperation(operation: OperationType): boolean {
   return UNARY_OPERATIONS.includes(operation);
 }
 
+/** Display symbols for each operation, keyed by the backend's enum name. */
+export const OPERATION_SYMBOLS: Record<OperationType, string> = {
+  ADD: '+',
+  SUBTRACT: '-',
+  MULTIPLY: '×',
+  DIVIDE: '÷',
+  EXPONENT: '^',
+  SQRT: '√',
+  PERCENTAGE: '%',
+};
+
 export interface HistoryEntry {
   id: number;
   operation: OperationType;
