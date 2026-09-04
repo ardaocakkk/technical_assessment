@@ -5,7 +5,7 @@ A calculator with a Spring Boot REST backend and a React + TypeScript frontend.
 ## Tech stack
 
 - **Backend:** Java 17, Spring Boot 4, Maven, JUnit 5 + Mockito, JaCoCo
-- **Frontend:** React 18, TypeScript, Vite, Zustand, TanStack Query, Tailwind CSS, Vitest + React Testing Library
+- **Frontend:** React 19, TypeScript, Vite, Zustand, TanStack Query, Tailwind CSS, Vitest + React Testing Library
 - **Infra:** Docker + Docker Compose
 
 ## Setup & running
@@ -43,6 +43,8 @@ cd backend
 mvn test
 ```
 
+If the JaCoCo report doesn't appear, it's because this particular checkout path contains non-ASCII characters, which the JVM javaagent used by JaCoCo does not handle on Windows; building from an ASCII-only path resolves it. A normal clone is unaffected.
+
 Frontend:
 ```bash
 cd frontend
@@ -70,6 +72,10 @@ Error response (400), e.g. division by zero:
 
 Supported `operation` values: `ADD`, `SUBTRACT`, `MULTIPLY`, `DIVIDE`, `EXPONENT`, `SQRT`, `PERCENTAGE`. `operandB` is omitted for `SQRT` (unary).
 
+`PERCENTAGE` is defined here as "`operandB` percent of `operandA`" — it computes `operandA * operandB / 100`, so `{"operandA": 50, "operandB": 20}` returns `10` (20% of 50). This is worth stating explicitly because the `%` key means different things on different calculators.
+
+`EXPONENT` requires an integer `operandB` with magnitude at most 1000; anything else returns a 400 rather than attempting an unbounded computation.
+
 Example with curl:
 ```bash
 curl -X POST http://localhost:8080/api/calculate \
@@ -86,4 +92,7 @@ curl -X POST http://localhost:8080/api/calculate \
 
 ## AI tooling disclosure
 
-This project was built with AI-assisted tooling (Claude Code). Prompts used are available on request / included per the assignment's instructions.
+This project was built with AI-assisted tooling (Claude Code). The prompts and instructions that drove the work are committed in this repository rather than kept separately — the design spec and implementation plan below *are* the prompt record, capturing the requirements, the design decisions taken (and rejected), and the step-by-step instructions each implementation session was given:
+
+- [`docs/superpowers/specs/2026-09-04-fullstack-calculator-design.md`](docs/superpowers/specs/2026-09-04-fullstack-calculator-design.md) — requirements and design decisions
+- [`docs/superpowers/plans/2026-09-04-fullstack-calculator.md`](docs/superpowers/plans/2026-09-04-fullstack-calculator.md) — the task-by-task implementation plan that was executed

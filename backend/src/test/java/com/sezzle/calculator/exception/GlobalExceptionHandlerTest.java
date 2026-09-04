@@ -4,6 +4,8 @@ import com.sezzle.calculator.dto.ErrorResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.mock.http.MockHttpInputMessage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -17,6 +19,18 @@ class GlobalExceptionHandlerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody().getMessage()).isEqualTo("Cannot divide by zero");
+    }
+
+    @Test
+    void mapsUnreadableBodyToBadRequestWithGenericMessage() {
+        ResponseEntity<ErrorResponse> response = handler.handleUnreadableBody(
+                new HttpMessageNotReadableException(
+                        "JSON parse error: unexpected character",
+                        new MockHttpInputMessage(new byte[0])));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getMessage())
+                .isEqualTo("Malformed request body or invalid field value");
     }
 
     @Test
