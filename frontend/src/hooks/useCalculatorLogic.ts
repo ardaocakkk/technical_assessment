@@ -60,18 +60,28 @@ function reducer(state: State, action: Action): State {
       if (state.phase !== 'input') {
         return { ...initialState, operandA: action.digit };
       }
-      return state.operation === null
-        ? { ...state, operandA: appendDigit(state.operandA, action.digit) }
-        : { ...state, operandB: appendDigit(state.operandB, action.digit) };
+      if (state.operation === null) {
+        return { ...state, operandA: appendDigit(state.operandA, action.digit) };
+      }
+      // Unary operations have no operandB — buildRequest drops it — so accepting digits
+      // here would show an operand on the display that the request never sends.
+      if (isUnaryOperation(state.operation)) {
+        return state;
+      }
+      return { ...state, operandB: appendDigit(state.operandB, action.digit) };
     }
 
     case 'DECIMAL': {
       if (state.phase !== 'input') {
         return { ...initialState, operandA: '0.' };
       }
-      return state.operation === null
-        ? { ...state, operandA: appendDecimal(state.operandA) }
-        : { ...state, operandB: appendDecimal(state.operandB) };
+      if (state.operation === null) {
+        return { ...state, operandA: appendDecimal(state.operandA) };
+      }
+      if (isUnaryOperation(state.operation)) {
+        return state;
+      }
+      return { ...state, operandB: appendDecimal(state.operandB) };
     }
 
     case 'OPERATION': {

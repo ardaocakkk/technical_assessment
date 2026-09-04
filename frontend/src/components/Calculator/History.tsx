@@ -2,9 +2,18 @@ import type { HistoryEntry } from '../../types/calculator';
 
 interface HistoryProps {
   entries: HistoryEntry[];
+  error?: string | null;
 }
 
-export function History({ entries }: HistoryProps) {
+export function History({ entries, error = null }: HistoryProps) {
+  if (error) {
+    return (
+      <div data-testid="history" className="mt-4 text-xs text-red-400">
+        {error}
+      </div>
+    );
+  }
+
   if (entries.length === 0) {
     return (
       <div data-testid="history" className="mt-4 text-xs text-neutral-400">

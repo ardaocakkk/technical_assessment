@@ -69,4 +69,35 @@ describe('Calculator', () => {
 
     expect(screen.getByTestId('display')).toHaveTextContent('9');
   });
+
+  it('chains operations by evaluating the pending calculation first', async () => {
+    const calculateSpy = vi.spyOn(calculatorApi, 'calculate');
+    calculateSpy.mockResolvedValueOnce({ result: 5 }).mockResolvedValueOnce({ result: 20 });
+    renderWithClient(<Calculator />);
+
+    await userEvent.click(screen.getByRole('button', { name: '2' }));
+    await userEvent.click(screen.getByRole('button', { name: '+' }));
+    await userEvent.click(screen.getByRole('button', { name: '3' }));
+    await userEvent.click(screen.getByRole('button', { name: '×' }));
+    await waitFor(() => expect(calculateSpy).toHaveBeenCalledTimes(1));
+
+    await userEvent.click(screen.getByRole('button', { name: '4' }));
+    await userEvent.click(screen.getByRole('button', { name: '=' }));
+
+    await waitFor(() => expect(screen.getByTestId('display')).toHaveTextContent('20'));
+    expect(calculateSpy).toHaveBeenNthCalledWith(1, { operation: 'ADD', operandA: 2, operandB: 3 });
+    expect(calculateSpy).toHaveBeenNthCalledWith(2, { operation: 'MULTIPLY', operandA: 5, operandB: 4 });
+  });
+
+  it('refuses a second decimal point when typed through the keypad', async () => {
+    renderWithClient(<Calculator />);
+
+    await userEvent.click(screen.getByRole('button', { name: '1' }));
+    await userEvent.click(screen.getByRole('button', { name: '.' }));
+    await userEvent.click(screen.getByRole('button', { name: '5' }));
+    await userEvent.click(screen.getByRole('button', { name: '.' }));
+    await userEvent.click(screen.getByRole('button', { name: '9' }));
+
+    expect(screen.getByTestId('display')).toHaveTextContent('1.59');
+  });
 });

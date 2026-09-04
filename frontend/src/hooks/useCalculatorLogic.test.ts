@@ -56,6 +56,37 @@ describe('useCalculatorLogic', () => {
     expect(result.current.phase).toBe('input');
   });
 
+  it('ignores digit and decimal input after selecting a unary operation', () => {
+    const { result } = renderHook(() => useCalculatorLogic());
+
+    act(() => {
+      result.current.enterDigit('9');
+      result.current.selectOperation('SQRT');
+      result.current.enterDigit('4');
+      result.current.enterDecimal();
+    });
+
+    expect(result.current.operandB).toBe('');
+    expect(result.current.operandA).toBe('9');
+  });
+
+  it('builds a unary request with no operandB after ignored keypresses', () => {
+    const { result } = renderHook(() => useCalculatorLogic());
+
+    act(() => {
+      result.current.enterDigit('9');
+      result.current.selectOperation('SQRT');
+      result.current.enterDigit('4');
+      result.current.submit();
+    });
+
+    expect(result.current.pendingRequest).toEqual({
+      operation: 'SQRT',
+      operandA: 9,
+      operandB: undefined,
+    });
+  });
+
   it('does not request a calculation for an incomplete expression', () => {
     const { result } = renderHook(() => useCalculatorLogic());
 

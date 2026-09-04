@@ -45,7 +45,10 @@ export function Calculator() {
           onClear={logic.clear}
         />
       </div>
-      <History entries={history.data ?? []} />
+      <History
+        entries={history.data ?? []}
+        error={history.isError ? 'Could not load history' : null}
+      />
     </div>
   );
 }
