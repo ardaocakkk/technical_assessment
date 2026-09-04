@@ -6,7 +6,9 @@
 
 **Architecture:** Backend gains a `model`/`repository`/`service`/`controller` slice for `CalculationHistory` (JPA + Postgres), wired into the existing `CalculatorController` via an optional `X-Client-Id` header — a calculation is saved only when the header is present, so existing behavior without it is unchanged. Frontend generates/persists a client ID in `localStorage`, sends it on every request, and adds a `useHistory` (`useQuery`) hook alongside the existing `useCalculate` (`useMutation`) — the same TanStack Query split rationale as the original design, now using both primitives for the purpose each is actually for.
 
-**Tech Stack:** Spring Data JPA, PostgreSQL (`postgres:16-alpine` in Docker), MapStruct 1.6.3, SLF4J · TanStack Query `useQuery`, `crypto.randomUUID()` + `localStorage`
+**Tech Stack:** Spring Data JPA, PostgreSQL (`postgres:16-alpine` in Docker), MapStruct 1.6.3, SLF4J · TanStack Query `useQuery`/`useMutation`, Axios, `useReducer`, `crypto.randomUUID()` + `localStorage`
+
+**Revision note (mid-execution, after Tasks 1-8 backend + old Tasks 9-13 frontend were originally planned):** the user requested a full state-management refactor of the frontend before Tasks 9-13 executed — replacing the Zustand store with a `useReducer`-based finite-state-machine hook (`useCalculatorLogic`, fixing three real bugs: digits appending onto a stale result, no operation-chaining, multiple decimal points) and replacing `fetch` with Axios in the API layer. Tasks 9-13 below are the *replacement* set — the original Zustand-based versions were never implemented (Tasks 1-8 backend were already complete and are unaffected).
 
 **Spec:** `docs/superpowers/specs/2026-09-05-calculation-history-design.md`
 
@@ -822,14 +824,42 @@ git commit -m "chore: add Postgres service to docker-compose"
 
 ---
 
-## Task 9: Frontend client ID
+## Task 9: Add Axios dependency
+
+**Files:**
+- Modify: `frontend/package.json`
+
+**Interfaces:**
+- Produces: `axios` available as a dependency for Task 11 (API client).
+
+**Note:** `zustand` and `frontend/src/store/calculatorStore.ts`/`calculatorStore.test.ts` are deliberately NOT removed in this task, even though the new architecture no longer needs them — `Calculator.tsx` still imports `calculatorStore` until Task 15 rewrites it. Removing the store earlier would break the build/tests in the meantime. Task 15 removes both the import and the files together, in the same commit that stops needing them.
+
+- [ ] **Step 1: Install Axios**
+
+Run: `cd frontend && npm install axios`
+
+- [ ] **Step 2: Verify the frontend suite still passes (no code changes yet, just a new dependency)**
+
+Run: `cd frontend && npm test`
+Expected: PASS, same test count as before.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add frontend/package.json frontend/package-lock.json
+git commit -m "chore(frontend): add axios dependency"
+```
+
+---
+
+## Task 10: Frontend client ID
 
 **Files:**
 - Create: `frontend/src/lib/clientId.ts`
 - Test: `frontend/src/lib/clientId.test.ts`
 
 **Interfaces:**
-- Produces: `getClientId(): string` — generates and persists a UUID in `localStorage` on first call, returns the same value on later calls. Used by Task 10 (`calculatorApi.ts`).
+- Produces: `getClientId(): string` — generates and persists a UUID in `localStorage` on first call, returns the same value on later calls. Used by Task 11 (`calculatorApi.ts`).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -890,16 +920,16 @@ git commit -m "feat(frontend): add anonymous client id (localStorage-backed)"
 
 ---
 
-## Task 10: API client — X-Client-Id header + fetchHistory
+## Task 11: Axios API client — X-Client-Id interceptor + fetchHistory
 
 **Files:**
 - Modify: `frontend/src/types/calculator.ts`
-- Modify: `frontend/src/api/calculatorApi.ts`
-- Modify: `frontend/src/api/calculatorApi.test.ts`
+- Create: `frontend/src/api/calculatorApi.ts` (replaces the existing `fetch`-based file entirely)
+- Create: `frontend/src/api/calculatorApi.test.ts` (replaces the existing file entirely)
 
 **Interfaces:**
-- Consumes: `getClientId` (Task 9).
-- Produces: `HistoryEntry{ id: number, operation: OperationType, operandA: number, operandB: number | null, result: number, createdAt: string }` type; `fetchHistory(): Promise<HistoryEntry[]>`. Used by Task 11 (`useHistory`).
+- Consumes: `getClientId` (Task 10), `axios` (Task 9).
+- Produces: `apiClient` (a configured `AxiosInstance`, exported for tests); `HistoryEntry{ id: number, operation: OperationType, operandA: number, operandB: number | null, result: number, createdAt: string }` type; `calculate(request): Promise<CalculationResponse>`; `fetchHistory(): Promise<HistoryEntry[]>`. Used by Task 12 (nothing — the FSM hook has no API knowledge), Task 13 (`useCalculate`/`useHistory`).
 
 - [ ] **Step 1: Add `HistoryEntry` to `frontend/src/types/calculator.ts`**
 
@@ -920,7 +950,7 @@ export interface HistoryEntry {
 Replace `frontend/src/api/calculatorApi.test.ts` with:
 ```ts
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { calculate, fetchHistory } from './calculatorApi';
+import { apiClient, calculate, fetchHistory } from './calculatorApi';
 
 vi.mock('../lib/clientId', () => ({
   getClientId: () => 'test-client-id',
@@ -932,28 +962,26 @@ describe('calculate', () => {
   });
 
   it('returns the parsed result on success', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ result: 5 }),
-    });
-    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(apiClient, 'post').mockResolvedValue({ data: { result: 5 } });
 
     const result = await calculate({ operation: 'ADD', operandA: 2, operandB: 3 });
 
     expect(result).toEqual({ result: 5 });
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        headers: expect.objectContaining({ 'X-Client-Id': 'test-client-id' }),
-      }),
-    );
+  });
+
+  it('posts to /api/calculate with the request body', async () => {
+    const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue({ data: { result: 5 } });
+
+    await calculate({ operation: 'ADD', operandA: 2, operandB: 3 });
+
+    expect(postSpy).toHaveBeenCalledWith('/api/calculate', { operation: 'ADD', operandA: 2, operandB: 3 });
   });
 
   it('throws with the backend error message on failure', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      json: async () => ({ message: 'Cannot divide by zero', timestamp: '2026-09-04T00:00:00Z' }),
-    }));
+    vi.spyOn(apiClient, 'post').mockRejectedValue({
+      isAxiosError: true,
+      response: { data: { message: 'Cannot divide by zero', timestamp: '2026-09-04T00:00:00Z' } },
+    });
 
     await expect(calculate({ operation: 'DIVIDE', operandA: 5, operandB: 0 }))
       .rejects.toThrow('Cannot divide by zero');
@@ -969,10 +997,7 @@ describe('fetchHistory', () => {
     const entries = [
       { id: 1, operation: 'ADD', operandA: 2, operandB: 3, result: 5, createdAt: '2026-09-05T00:00:00Z' },
     ];
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => entries,
-    }));
+    vi.spyOn(apiClient, 'get').mockResolvedValue({ data: entries });
 
     const result = await fetchHistory();
 
@@ -980,73 +1005,359 @@ describe('fetchHistory', () => {
   });
 
   it('throws with the backend error message on failure', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      json: async () => ({ message: 'Missing required header: X-Client-Id', timestamp: '2026-09-05T00:00:00Z' }),
-    }));
+    vi.spyOn(apiClient, 'get').mockRejectedValue({
+      isAxiosError: true,
+      response: { data: { message: 'Missing required header: X-Client-Id', timestamp: '2026-09-05T00:00:00Z' } },
+    });
 
     await expect(fetchHistory()).rejects.toThrow('Missing required header: X-Client-Id');
   });
 });
 ```
+(Faking an Axios error as a plain object `{ isAxiosError: true, response: {...} }` — rather than constructing a real `AxiosError` — works because axios's own `axios.isAxiosError()` check is exactly `payload !== null && typeof payload === 'object' && payload.isAxiosError === true`; this is the standard way to test Axios error handling without needing a live request.)
 
 - [ ] **Step 3: Run tests to verify they fail**
 
 Run: `cd frontend && npm test -- calculatorApi.test.ts`
-Expected: FAIL — `fetchHistory` is not exported; the `X-Client-Id` header assertion fails against the current implementation.
+Expected: FAIL — `./calculatorApi` has no `apiClient` export yet (the file doesn't exist in this form).
 
 - [ ] **Step 4: Replace `frontend/src/api/calculatorApi.ts` with**
 
 ```ts
+import axios from 'axios';
 import type { ApiError, CalculationRequest, CalculationResponse, HistoryEntry } from '../types/calculator';
 import { getClientId } from '../lib/clientId';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080';
 
-export async function calculate(request: CalculationRequest): Promise<CalculationResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/calculate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Client-Id': getClientId() },
-    body: JSON.stringify(request),
-  });
+export const apiClient = axios.create({ baseURL: API_BASE_URL });
 
-  if (!response.ok) {
-    const error = (await response.json()) as ApiError;
-    throw new Error(error.message);
+apiClient.interceptors.request.use((config) => {
+  config.headers.set('X-Client-Id', getClientId());
+  return config;
+});
+
+function extractErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    const apiError = error.response?.data as ApiError | undefined;
+    if (apiError?.message) {
+      return apiError.message;
+    }
   }
+  return 'Unexpected error';
+}
 
-  return (await response.json()) as CalculationResponse;
+export async function calculate(request: CalculationRequest): Promise<CalculationResponse> {
+  try {
+    const response = await apiClient.post<CalculationResponse>('/api/calculate', request);
+    return response.data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
+  }
 }
 
 export async function fetchHistory(): Promise<HistoryEntry[]> {
-  const response = await fetch(`${API_BASE_URL}/api/history`, {
-    headers: { 'X-Client-Id': getClientId() },
-  });
-
-  if (!response.ok) {
-    const error = (await response.json()) as ApiError;
-    throw new Error(error.message);
+  try {
+    const response = await apiClient.get<HistoryEntry[]>('/api/history');
+    return response.data;
+  } catch (error) {
+    throw new Error(extractErrorMessage(error));
   }
-
-  return (await response.json()) as HistoryEntry[];
 }
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cd frontend && npm test -- calculatorApi.test.ts`
-Expected: PASS (4 tests)
+Expected: PASS (5 tests)
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add frontend/src/types/calculator.ts frontend/src/api/calculatorApi.ts frontend/src/api/calculatorApi.test.ts
-git commit -m "feat(frontend): send X-Client-Id header, add fetchHistory"
+git commit -m "feat(frontend): switch API client to axios, add X-Client-Id interceptor and fetchHistory"
 ```
 
 ---
 
-## Task 11: useHistory hook + history invalidation on calculate
+## Task 12: useCalculatorLogic — useReducer finite-state-machine hook
+
+**Files:**
+- Create: `frontend/src/hooks/useCalculatorLogic.ts`
+- Test: `frontend/src/hooks/useCalculatorLogic.test.ts`
+
+**Interfaces:**
+- Consumes: `CalculationRequest`, `OperationType`, `isUnaryOperation` (existing, `types/calculator.ts`).
+- Produces: `useCalculatorLogic()` returning `{ operandA: string, operandB: string, operation: OperationType | null, phase: 'input' | 'result' | 'error', errorMessage: string | null, pendingRequest: CalculationRequest | null, enterDigit(digit: string), enterDecimal(), selectOperation(op: OperationType), submit(), clear(), acknowledgeRequestSent(), reportSuccess(result: number), reportError(message: string) }`. Used by Task 15 (`Calculator.tsx`, the connector).
+
+This hook is pure client-side state — it has no knowledge of the API. It signals "ready to calculate" via `pendingRequest` (non-null); the connector (Task 15) is responsible for watching that field, calling `useCalculate`'s `mutate`, and reporting the outcome back via `reportSuccess`/`reportError`.
+
+Fixes three real bugs from the previous Zustand-based implementation: (1) digits appending onto a stale result instead of starting fresh, (2) no way to chain operations (`2 + 3 +` had no defined behavior), (3) multiple decimal points allowed in one operand.
+
+- [ ] **Step 1: Write the failing tests**
+
+```ts
+import { describe, it, expect } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
+import { useCalculatorLogic } from './useCalculatorLogic';
+
+describe('useCalculatorLogic', () => {
+  it('starts a fresh expression when a digit is pressed after a result', () => {
+    const { result } = renderHook(() => useCalculatorLogic());
+
+    act(() => {
+      result.current.reportSuccess(5);
+    });
+    expect(result.current.phase).toBe('result');
+
+    act(() => {
+      result.current.enterDigit('7');
+    });
+
+    expect(result.current.operandA).toBe('7');
+    expect(result.current.phase).toBe('input');
+  });
+
+  it('refuses a second decimal point in the same operand', () => {
+    const { result } = renderHook(() => useCalculatorLogic());
+
+    act(() => {
+      result.current.enterDigit('1');
+      result.current.enterDecimal();
+      result.current.enterDigit('5');
+      result.current.enterDecimal();
+      result.current.enterDigit('9');
+    });
+
+    expect(result.current.operandA).toBe('1.59');
+  });
+
+  it('chains operations by requesting the pending calculation before continuing', () => {
+    const { result } = renderHook(() => useCalculatorLogic());
+
+    act(() => {
+      result.current.enterDigit('2');
+      result.current.selectOperation('ADD');
+      result.current.enterDigit('3');
+      result.current.selectOperation('MULTIPLY');
+    });
+
+    expect(result.current.pendingRequest).toEqual({ operation: 'ADD', operandA: 2, operandB: 3 });
+
+    act(() => {
+      result.current.acknowledgeRequestSent();
+      result.current.reportSuccess(5);
+    });
+
+    expect(result.current.operandA).toBe('5');
+    expect(result.current.operation).toBe('MULTIPLY');
+    expect(result.current.operandB).toBe('');
+    expect(result.current.phase).toBe('input');
+  });
+
+  it('does not request a calculation for an incomplete expression', () => {
+    const { result } = renderHook(() => useCalculatorLogic());
+
+    act(() => {
+      result.current.enterDigit('2');
+      result.current.selectOperation('ADD');
+      result.current.submit();
+    });
+
+    expect(result.current.pendingRequest).toBeNull();
+  });
+
+  it('clears everything on clear', () => {
+    const { result } = renderHook(() => useCalculatorLogic());
+
+    act(() => {
+      result.current.enterDigit('9');
+      result.current.clear();
+    });
+
+    expect(result.current.operandA).toBe('');
+    expect(result.current.phase).toBe('input');
+  });
+
+  it('reports an error and moves to the error phase', () => {
+    const { result } = renderHook(() => useCalculatorLogic());
+
+    act(() => {
+      result.current.enterDigit('5');
+      result.current.selectOperation('DIVIDE');
+      result.current.enterDigit('0');
+      result.current.submit();
+      result.current.acknowledgeRequestSent();
+      result.current.reportError('Cannot divide by zero');
+    });
+
+    expect(result.current.phase).toBe('error');
+    expect(result.current.errorMessage).toBe('Cannot divide by zero');
+  });
+});
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cd frontend && npm test -- useCalculatorLogic.test.ts`
+Expected: FAIL — `./useCalculatorLogic` module does not exist.
+
+- [ ] **Step 3: Implement `frontend/src/hooks/useCalculatorLogic.ts`**
+
+```ts
+import { useReducer } from 'react';
+import type { CalculationRequest, OperationType } from '../types/calculator';
+import { isUnaryOperation } from '../types/calculator';
+
+type Phase = 'input' | 'result' | 'error';
+
+interface State {
+  operandA: string;
+  operandB: string;
+  operation: OperationType | null;
+  phase: Phase;
+  errorMessage: string | null;
+  pendingRequest: CalculationRequest | null;
+  pendingIsChain: boolean;
+}
+
+type Action =
+  | { type: 'DIGIT'; digit: string }
+  | { type: 'DECIMAL' }
+  | { type: 'OPERATION'; operation: OperationType }
+  | { type: 'EQUALS' }
+  | { type: 'CLEAR' }
+  | { type: 'REQUEST_SENT' }
+  | { type: 'CALCULATION_SUCCESS'; result: number }
+  | { type: 'CALCULATION_ERROR'; message: string };
+
+const initialState: State = {
+  operandA: '',
+  operandB: '',
+  operation: null,
+  phase: 'input',
+  errorMessage: null,
+  pendingRequest: null,
+  pendingIsChain: false,
+};
+
+function appendDigit(current: string, digit: string): string {
+  return current === '0' ? digit : current + digit;
+}
+
+function appendDecimal(current: string): string {
+  if (current.includes('.')) {
+    return current;
+  }
+  return current === '' ? '0.' : current + '.';
+}
+
+function buildRequest(state: State): CalculationRequest {
+  const unary = state.operation !== null && isUnaryOperation(state.operation);
+  return {
+    operation: state.operation as OperationType,
+    operandA: Number(state.operandA),
+    operandB: unary ? undefined : Number(state.operandB),
+  };
+}
+
+function reducer(state: State, action: Action): State {
+  switch (action.type) {
+    case 'DIGIT': {
+      if (state.phase !== 'input') {
+        return { ...initialState, operandA: action.digit };
+      }
+      return state.operation === null
+        ? { ...state, operandA: appendDigit(state.operandA, action.digit) }
+        : { ...state, operandB: appendDigit(state.operandB, action.digit) };
+    }
+
+    case 'DECIMAL': {
+      if (state.phase !== 'input') {
+        return { ...initialState, operandA: '0.' };
+      }
+      return state.operation === null
+        ? { ...state, operandA: appendDecimal(state.operandA) }
+        : { ...state, operandB: appendDecimal(state.operandB) };
+    }
+
+    case 'OPERATION': {
+      if (state.operandA === '') {
+        return state;
+      }
+      if (state.phase === 'input' && state.operation !== null && state.operandB !== '') {
+        return {
+          ...state,
+          pendingRequest: buildRequest(state),
+          pendingIsChain: true,
+          operation: action.operation,
+        };
+      }
+      return { ...state, operation: action.operation, phase: 'input' };
+    }
+
+    case 'EQUALS': {
+      if (state.operation === null || state.operandA === '') {
+        return state;
+      }
+      const unary = isUnaryOperation(state.operation);
+      if (!unary && state.operandB === '') {
+        return state;
+      }
+      return { ...state, pendingRequest: buildRequest(state), pendingIsChain: false };
+    }
+
+    case 'REQUEST_SENT':
+      return { ...state, pendingRequest: null };
+
+    case 'CALCULATION_SUCCESS':
+      return state.pendingIsChain
+        ? { ...initialState, operandA: String(action.result), operation: state.operation }
+        : { ...initialState, operandA: String(action.result), phase: 'result' };
+
+    case 'CALCULATION_ERROR':
+      return { ...initialState, phase: 'error', errorMessage: action.message };
+
+    case 'CLEAR':
+      return initialState;
+
+    default:
+      return state;
+  }
+}
+
+export function useCalculatorLogic() {
+  const [state, dispatch] = useReducer(reducer, initialState);
+
+  return {
+    ...state,
+    enterDigit: (digit: string) => dispatch({ type: 'DIGIT', digit }),
+    enterDecimal: () => dispatch({ type: 'DECIMAL' }),
+    selectOperation: (operation: OperationType) => dispatch({ type: 'OPERATION', operation }),
+    submit: () => dispatch({ type: 'EQUALS' }),
+    clear: () => dispatch({ type: 'CLEAR' }),
+    acknowledgeRequestSent: () => dispatch({ type: 'REQUEST_SENT' }),
+    reportSuccess: (result: number) => dispatch({ type: 'CALCULATION_SUCCESS', result }),
+    reportError: (message: string) => dispatch({ type: 'CALCULATION_ERROR', message }),
+  };
+}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `cd frontend && npm test -- useCalculatorLogic.test.ts`
+Expected: PASS (6 tests)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/src/hooks/useCalculatorLogic.ts frontend/src/hooks/useCalculatorLogic.test.ts
+git commit -m "feat(frontend): add useCalculatorLogic FSM hook, replacing Zustand store logic"
+```
+
+---
+
+## Task 13: useHistory hook + history invalidation on calculate
 
 **Files:**
 - Create: `frontend/src/hooks/useHistory.ts`
@@ -1055,8 +1366,8 @@ git commit -m "feat(frontend): send X-Client-Id header, add fetchHistory"
 - Modify: `frontend/src/hooks/useCalculate.test.tsx`
 
 **Interfaces:**
-- Consumes: `fetchHistory` (Task 10).
-- Produces: `useHistory(): UseQueryResult<HistoryEntry[], Error>`. `useCalculate` now invalidates the `['history']` query key on success. Used by Task 13 (`Calculator.tsx`).
+- Consumes: `fetchHistory` (Task 11).
+- Produces: `useHistory(): UseQueryResult<HistoryEntry[], Error>`. `useCalculate` now invalidates the `['history']` query key on success (in addition to its existing hook-level behavior) — the connector (Task 15) also passes per-call `onSuccess`/`onError` callbacks to `mutate(...)`, and both the hook-level and per-call callbacks run. Used by Task 15 (`Calculator.tsx`).
 
 - [ ] **Step 1: Write the failing test for `useHistory`**
 
@@ -1174,15 +1485,15 @@ git commit -m "feat(frontend): add useHistory query, invalidate history after ca
 
 ---
 
-## Task 12: History component
+## Task 14: History component
 
 **Files:**
 - Create: `frontend/src/components/Calculator/History.tsx`
 - Test: `frontend/src/components/Calculator/History.test.tsx`
 
 **Interfaces:**
-- Consumes: `HistoryEntry` (Task 10).
-- Produces: `History` component with prop `{ entries: HistoryEntry[] }`. Used by Task 13 (`Calculator.tsx`).
+- Consumes: `HistoryEntry` (Task 11).
+- Produces: `History` component with prop `{ entries: HistoryEntry[] }`. Used by Task 15 (`Calculator.tsx`).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1262,17 +1573,19 @@ git commit -m "feat(frontend): add History panel component"
 
 ---
 
-## Task 13: Casio FX-991ES restyle + wire History into Calculator
+## Task 15: Casio FX-991ES restyle + Calculator.tsx as connector (removes Zustand)
 
 **Files:**
 - Modify: `frontend/src/components/Calculator/Display.tsx`
 - Modify: `frontend/src/components/Calculator/Keypad.tsx`
 - Modify: `frontend/src/components/Calculator/Calculator.tsx`
 - Modify: `frontend/src/components/Calculator/Calculator.test.tsx`
+- Delete: `frontend/src/store/calculatorStore.ts`
+- Delete: `frontend/src/store/calculatorStore.test.ts`
 
 **Interfaces:**
-- Consumes: `useHistory` (Task 11), `History` (Task 12).
-- Produces: no change to `Display`/`Keypad` props or button accessible names — styling only. `Calculator` now renders `<History>` below the keypad.
+- Consumes: `useCalculatorLogic` (Task 12), `useCalculate` (Task 13), `useHistory` (Task 13), `History` (Task 14).
+- Produces: no change to `Display`/`Keypad` props or button accessible names — styling only. `Calculator` becomes a thin connector: it owns no calculation state itself, just wires `useCalculatorLogic`'s `pendingRequest` to `useCalculate`'s `mutate` and feeds the outcome back. This is the last file referencing `calculatorStore` — deleting the store here is safe because nothing else imports it after this commit.
 
 - [ ] **Step 1: Replace `frontend/src/components/Calculator/Display.tsx` with**
 
@@ -1317,6 +1630,7 @@ import type { OperationType } from '../../types/calculator';
 
 interface KeypadProps {
   onDigit: (digit: string) => void;
+  onDecimal: () => void;
   onOperation: (operation: OperationType) => void;
   onEquals: () => void;
   onClear: () => void;
@@ -1337,14 +1651,17 @@ const digitClass =
 const operationClass =
   'rounded-md bg-neutral-700 p-3 text-base font-semibold text-neutral-100 shadow active:scale-95 transition hover:bg-neutral-600';
 
-export function Keypad({ onDigit, onOperation, onEquals, onClear }: KeypadProps) {
+export function Keypad({ onDigit, onDecimal, onOperation, onEquals, onClear }: KeypadProps) {
   return (
     <div className="grid grid-cols-4 gap-2 rounded-xl bg-neutral-800 p-3 sm:gap-3">
-      {['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '.'].map((digit) => (
+      {['7', '8', '9', '4', '5', '6', '1', '2', '3', '0'].map((digit) => (
         <button key={digit} type="button" className={digitClass} onClick={() => onDigit(digit)}>
           {digit}
         </button>
       ))}
+      <button type="button" className={digitClass} onClick={onDecimal}>
+        .
+      </button>
       {OPERATION_BUTTONS.map(({ label, operation }) => (
         <button
           key={operation}
@@ -1374,58 +1691,96 @@ export function Keypad({ onDigit, onOperation, onEquals, onClear }: KeypadProps)
 }
 ```
 
-- [ ] **Step 3: Replace `frontend/src/components/Calculator/Calculator.tsx` with**
+- [ ] **Step 3: Update `frontend/src/components/Calculator/Keypad.test.tsx` for the new `onDecimal` prop**
+
+The existing test file renders `<Keypad onDigit={...} onOperation={...} onEquals={...} onClear={...} />` for each test — `onDecimal` is now a required prop, so every one of those render calls needs `onDecimal={vi.fn()}` added. Replace the file with:
+```tsx
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Keypad } from './Keypad';
+
+describe('Keypad', () => {
+  it('calls onDigit when a digit button is clicked', async () => {
+    const onDigit = vi.fn();
+    render(<Keypad onDigit={onDigit} onDecimal={vi.fn()} onOperation={vi.fn()} onEquals={vi.fn()} onClear={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: '7' }));
+
+    expect(onDigit).toHaveBeenCalledWith('7');
+  });
+
+  it('calls onDecimal when the decimal button is clicked', async () => {
+    const onDecimal = vi.fn();
+    render(<Keypad onDigit={vi.fn()} onDecimal={onDecimal} onOperation={vi.fn()} onEquals={vi.fn()} onClear={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: '.' }));
+
+    expect(onDecimal).toHaveBeenCalled();
+  });
+
+  it('calls onOperation with ADD when + is clicked', async () => {
+    const onOperation = vi.fn();
+    render(<Keypad onDigit={vi.fn()} onDecimal={vi.fn()} onOperation={onOperation} onEquals={vi.fn()} onClear={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: '+' }));
+
+    expect(onOperation).toHaveBeenCalledWith('ADD');
+  });
+
+  it('calls onEquals when = is clicked', async () => {
+    const onEquals = vi.fn();
+    render(<Keypad onDigit={vi.fn()} onDecimal={vi.fn()} onOperation={vi.fn()} onEquals={onEquals} onClear={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: '=' }));
+
+    expect(onEquals).toHaveBeenCalled();
+  });
+
+  it('calls onClear when C is clicked', async () => {
+    const onClear = vi.fn();
+    render(<Keypad onDigit={vi.fn()} onDecimal={vi.fn()} onOperation={vi.fn()} onEquals={vi.fn()} onClear={onClear} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'C' }));
+
+    expect(onClear).toHaveBeenCalled();
+  });
+});
+```
+
+- [ ] **Step 4: Run the Keypad test to verify it passes**
+
+Run: `cd frontend && npm test -- Keypad.test.tsx`
+Expected: PASS (5 tests)
+
+- [ ] **Step 5: Replace `frontend/src/components/Calculator/Calculator.tsx` with**
 
 ```tsx
-import { useCalculatorStore } from '../../store/calculatorStore';
+import { useEffect } from 'react';
+import { useCalculatorLogic } from '../../hooks/useCalculatorLogic';
 import { useCalculate } from '../../hooks/useCalculate';
 import { useHistory } from '../../hooks/useHistory';
-import { isUnaryOperation } from '../../types/calculator';
 import { Display } from './Display';
 import { Keypad } from './Keypad';
 import { History } from './History';
 
 export function Calculator() {
-  const { operandA, operandB, operation, setOperandA, setOperandB, setOperation, reset } =
-    useCalculatorStore();
-  const { mutate, data, error, reset: resetMutation } = useCalculate();
+  const logic = useCalculatorLogic();
+  const { mutate } = useCalculate();
   const history = useHistory();
 
-  const enteringOperandB = operation !== null;
-
-  function handleDigit(digit: string) {
-    resetMutation();
-    if (enteringOperandB) {
-      setOperandB(operandB + digit);
-    } else {
-      setOperandA(operandA + digit);
-    }
-  }
-
-  function handleOperation(nextOperation: Parameters<typeof setOperation>[0]) {
-    resetMutation();
-    setOperation(nextOperation);
-  }
-
-  function handleEquals() {
-    if (operation === null || operandA === '') {
+  useEffect(() => {
+    if (!logic.pendingRequest) {
       return;
     }
-    const unary = isUnaryOperation(operation);
-    if (!unary && operandB === '') {
-      return;
-    }
-    mutate({
-      operation,
-      operandA: Number(operandA),
-      operandB: unary ? undefined : Number(operandB),
+    const request = logic.pendingRequest;
+    logic.acknowledgeRequestSent();
+    mutate(request, {
+      onSuccess: (response) => logic.reportSuccess(response.result),
+      onError: (error) => logic.reportError(error.message),
     });
-  }
-
-  function handleClear() {
-    resetMutation();
-    reset();
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logic.pendingRequest]);
 
   return (
     <div className="mx-auto mt-10 w-full max-w-xs rounded-2xl bg-neutral-900 p-4 shadow-2xl sm:max-w-sm">
@@ -1433,18 +1788,19 @@ export function Calculator() {
         fx-CALC · SOLAR
       </div>
       <Display
-        operandA={operandA}
-        operation={operation}
-        operandB={operandB}
-        result={data ? String(data.result) : null}
-        error={error ? error.message : null}
+        operandA={logic.operandA}
+        operation={logic.operation}
+        operandB={logic.operandB}
+        result={logic.phase === 'result' ? logic.operandA : null}
+        error={logic.phase === 'error' ? logic.errorMessage : null}
       />
       <div className="mt-4">
         <Keypad
-          onDigit={handleDigit}
-          onOperation={handleOperation}
-          onEquals={handleEquals}
-          onClear={handleClear}
+          onDigit={logic.enterDigit}
+          onDecimal={logic.enterDecimal}
+          onOperation={logic.selectOperation}
+          onEquals={logic.submit}
+          onClear={logic.clear}
         />
       </div>
       <History entries={history.data ?? []} />
@@ -1452,46 +1808,113 @@ export function Calculator() {
   );
 }
 ```
+Note: the `.` button is wired to `logic.enterDecimal` (not `logic.enterDigit('.')`) so the reducer's decimal-point guard (Task 12) actually applies — this is why `Keypad.tsx` in Step 2 above takes a separate `onDecimal` prop rather than treating `.` as just another digit.
 
-- [ ] **Step 4: Update `frontend/src/components/Calculator/Calculator.test.tsx`**
+- [ ] **Step 6: Delete the Zustand store**
 
-Add this import:
-```tsx
-import { beforeEach } from 'vitest';
+```bash
+git rm frontend/src/store/calculatorStore.ts frontend/src/store/calculatorStore.test.ts
 ```
-(Vitest globals are already enabled per `vitest.config.ts`, so `beforeEach`/`afterEach`/etc. don't strictly need importing, but this file's existing style imports them explicitly alongside `describe`/`it`/`expect` — add `beforeEach` to the existing `import { describe, it, expect, vi, afterEach } from 'vitest';` line instead of a separate import line, i.e. change it to:)
+
+- [ ] **Step 7: Replace `frontend/src/components/Calculator/Calculator.test.tsx` with**
+
 ```tsx
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-```
-Add this `beforeEach` inside the `describe('Calculator', ...)` block, alongside the existing `afterEach`:
-```tsx
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactElement } from 'react';
+import { Calculator } from './Calculator';
+import * as calculatorApi from '../../api/calculatorApi';
+
+function renderWithClient(ui: ReactElement) {
+  const queryClient = new QueryClient();
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
+
+describe('Calculator', () => {
   beforeEach(() => {
     vi.spyOn(calculatorApi, 'fetchHistory').mockResolvedValue([]);
   });
-```
-This prevents `useHistory` from making a real network call during these tests (it isn't otherwise mocked, since these tests only ever mocked `calculatorApi.calculate`).
 
-- [ ] **Step 5: Run the full frontend suite**
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('performs a calculation end-to-end and shows the result', async () => {
+    vi.spyOn(calculatorApi, 'calculate').mockResolvedValue({ result: 5 });
+    renderWithClient(<Calculator />);
+
+    await userEvent.click(screen.getByRole('button', { name: '2' }));
+    await userEvent.click(screen.getByRole('button', { name: '+' }));
+    await userEvent.click(screen.getByRole('button', { name: '3' }));
+    await userEvent.click(screen.getByRole('button', { name: '=' }));
+
+    await waitFor(() => expect(screen.getByTestId('display')).toHaveTextContent('5'));
+  });
+
+  it('shows an error message when the API call fails', async () => {
+    vi.spyOn(calculatorApi, 'calculate').mockRejectedValue(new Error('Cannot divide by zero'));
+    renderWithClient(<Calculator />);
+
+    await userEvent.click(screen.getByRole('button', { name: '5' }));
+    await userEvent.click(screen.getByRole('button', { name: '÷' }));
+    await userEvent.click(screen.getByRole('button', { name: '0' }));
+    await userEvent.click(screen.getByRole('button', { name: '=' }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('display')).toHaveTextContent('Cannot divide by zero'),
+    );
+  });
+
+  it('clear resets the display', async () => {
+    renderWithClient(<Calculator />);
+
+    await userEvent.click(screen.getByRole('button', { name: '7' }));
+    await userEvent.click(screen.getByRole('button', { name: 'C' }));
+
+    expect(screen.getByTestId('display')).toHaveTextContent('0');
+  });
+
+  it('starts a fresh expression after pressing a digit following a result', async () => {
+    vi.spyOn(calculatorApi, 'calculate').mockResolvedValue({ result: 5 });
+    renderWithClient(<Calculator />);
+
+    await userEvent.click(screen.getByRole('button', { name: '2' }));
+    await userEvent.click(screen.getByRole('button', { name: '+' }));
+    await userEvent.click(screen.getByRole('button', { name: '3' }));
+    await userEvent.click(screen.getByRole('button', { name: '=' }));
+    await waitFor(() => expect(screen.getByTestId('display')).toHaveTextContent('5'));
+
+    await userEvent.click(screen.getByRole('button', { name: '9' }));
+
+    expect(screen.getByTestId('display')).toHaveTextContent('9');
+  });
+});
+```
+
+- [ ] **Step 8: Run the full frontend suite**
 
 Run: `cd frontend && npm test`
-Expected: all tests PASS, no regressions, no console noise about failed fetches.
+Expected: all tests PASS, no regressions, no console noise about failed fetches, no references to `calculatorStore` remaining anywhere (confirm with `grep -r "calculatorStore" frontend/src` — expect no matches).
 
-- [ ] **Step 6: Verify the build still succeeds**
+- [ ] **Step 9: Verify the build still succeeds**
 
 Run: `cd frontend && npm run build`
 Expected: succeeds.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add frontend/src/components/Calculator/Display.tsx frontend/src/components/Calculator/Keypad.tsx frontend/src/components/Calculator/Calculator.tsx frontend/src/components/Calculator/Calculator.test.tsx
-git commit -m "feat(frontend): restyle calculator in Casio FX-991ES visual language, wire in History panel"
+git add -A frontend/src
+git commit -m "feat(frontend): restyle calculator in Casio FX-991ES visual language, wire in History panel, replace Zustand with useCalculatorLogic connector"
 ```
 
 ---
 
 ## Self-Review Notes
 
-- **Spec coverage:** model/repository/service/controller (Tasks 2-3, 5-7), Postgres + docker-compose (Tasks 1, 8), MapStruct entity↔DTO mapping (Task 4, as originally deferred in the core-phase spec), SLF4J logging (Tasks 5-7), client ID generation + header (Tasks 9-10), history-scoped-to-client "10 latest" (Task 3's repository method + Task 6), frontend history panel (Tasks 11-13), Casio restyle restricted to supported operations (Task 13), tests added/modified throughout every task. No spec section without a task.
+- **Spec coverage:** model/repository/service/controller (Tasks 2-3, 5-7), Postgres + docker-compose (Tasks 1, 8), MapStruct entity↔DTO mapping (Task 4, as originally deferred in the core-phase spec), SLF4J logging (Tasks 5-7), client ID generation + header (Tasks 10-11), history-scoped-to-client "10 latest" (Task 3's repository method + Task 6), frontend history panel (Tasks 13-15), Casio restyle restricted to supported operations (Task 15), tests added/modified throughout every task. No spec section without a task.
+- **Revision coverage (mid-execution refactor):** Zustand fully removed (Task 15 deletes it, Task 9 only adds Axios without touching Zustand to avoid an intermediate broken build), `useCalculatorLogic` FSM covers all three named bugs (fresh-start-after-result, decimal guard, operation chaining — Task 12's tests), Axios replaces `fetch` with the same `X-Client-Id` header behavior via a request interceptor (Task 11), `Calculator.tsx` is a pure connector with no calculation state of its own (Task 15).
 - **Placeholder scan:** no TBD/TODO markers; every step has complete, real code.
-- **Type consistency:** `CalculationHistory` fields (`id, clientId, operation, operandA, operandB, result, createdAt`) match between the entity (Task 2), the mapper's source (Task 4), and the service (Task 5). `CalculationHistoryResponse` fields match what `CalculationHistoryController` returns (Task 6) and what `HistoryEntry` on the frontend expects (Task 10) — `operation` as `String`/`OperationType` string-compatible, `operandA`/`operandB`/`result` as numeric, `createdAt` as `Instant`/ISO string. `getClientId()` (Task 9) is consumed identically by both `calculate` and `fetchHistory` (Task 10).
+- **Type consistency:** `CalculationHistory` fields (`id, clientId, operation, operandA, operandB, result, createdAt`) match between the entity (Task 2), the mapper's source (Task 4), and the service (Task 5). `CalculationHistoryResponse` fields match what `CalculationHistoryController` returns (Task 6) and what `HistoryEntry` on the frontend expects (Task 11) — `operation` as `String`/`OperationType` string-compatible, `operandA`/`operandB`/`result` as numeric, `createdAt` as `Instant`/ISO string. `getClientId()` (Task 10) is consumed identically by `apiClient`'s request interceptor for both `calculate` and `fetchHistory` (Task 11). `useCalculatorLogic`'s `pendingRequest: CalculationRequest | null` (Task 12) is exactly what `Calculator.tsx` (Task 15) passes to `useCalculate`'s `mutate(...)` (Task 13).
