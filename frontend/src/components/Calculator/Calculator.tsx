@@ -1,65 +1,51 @@
-import { useCalculatorStore } from '../../store/calculatorStore';
+import { useEffect } from 'react';
+import { useCalculatorLogic } from '../../hooks/useCalculatorLogic';
 import { useCalculate } from '../../hooks/useCalculate';
-import { isUnaryOperation } from '../../types/calculator';
+import { useHistory } from '../../hooks/useHistory';
 import { Display } from './Display';
 import { Keypad } from './Keypad';
+import { History } from './History';
 
 export function Calculator() {
-  const { operandA, operandB, operation, setOperandA, setOperandB, setOperation, reset } =
-    useCalculatorStore();
-  const { mutate, data, error, reset: resetMutation } = useCalculate();
+  const logic = useCalculatorLogic();
+  const { mutate } = useCalculate();
+  const history = useHistory();
 
-  const enteringOperandB = operation !== null;
-
-  function handleDigit(digit: string) {
-    resetMutation();
-    if (enteringOperandB) {
-      setOperandB(operandB + digit);
-    } else {
-      setOperandA(operandA + digit);
-    }
-  }
-
-  function handleOperation(nextOperation: Parameters<typeof setOperation>[0]) {
-    resetMutation();
-    setOperation(nextOperation);
-  }
-
-  function handleEquals() {
-    if (operation === null || operandA === '') {
+  useEffect(() => {
+    if (!logic.pendingRequest) {
       return;
     }
-    const unary = isUnaryOperation(operation);
-    if (!unary && operandB === '') {
-      return;
-    }
-    mutate({
-      operation,
-      operandA: Number(operandA),
-      operandB: unary ? undefined : Number(operandB),
+    const request = logic.pendingRequest;
+    logic.acknowledgeRequestSent();
+    mutate(request, {
+      onSuccess: (response) => logic.reportSuccess(response.result),
+      onError: (error) => logic.reportError(error.message),
     });
-  }
-
-  function handleClear() {
-    resetMutation();
-    reset();
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logic.pendingRequest]);
 
   return (
-    <div className="mx-auto mt-10 w-full max-w-xs space-y-4 rounded-lg bg-gray-50 p-4 shadow sm:max-w-sm">
+    <div className="mx-auto mt-10 w-full max-w-xs rounded-2xl bg-neutral-900 p-4 shadow-2xl sm:max-w-sm">
+      <div className="mb-3 text-center text-[10px] tracking-widest text-neutral-400">
+        fx-CALC · SOLAR
+      </div>
       <Display
-        operandA={operandA}
-        operation={operation}
-        operandB={operandB}
-        result={data ? String(data.result) : null}
-        error={error ? error.message : null}
+        operandA={logic.operandA}
+        operation={logic.operation}
+        operandB={logic.operandB}
+        result={logic.phase === 'result' ? logic.operandA : null}
+        error={logic.phase === 'error' ? logic.errorMessage : null}
       />
-      <Keypad
-        onDigit={handleDigit}
-        onOperation={handleOperation}
-        onEquals={handleEquals}
-        onClear={handleClear}
-      />
+      <div className="mt-4">
+        <Keypad
+          onDigit={logic.enterDigit}
+          onDecimal={logic.enterDecimal}
+          onOperation={logic.selectOperation}
+          onEquals={logic.submit}
+          onClear={logic.clear}
+        />
+      </div>
+      <History entries={history.data ?? []} />
     </div>
   );
 }

@@ -1,11 +1,10 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement } from 'react';
 import { Calculator } from './Calculator';
 import * as calculatorApi from '../../api/calculatorApi';
-import { useCalculatorStore } from '../../store/calculatorStore';
 
 function renderWithClient(ui: ReactElement) {
   const queryClient = new QueryClient();
@@ -13,9 +12,12 @@ function renderWithClient(ui: ReactElement) {
 }
 
 describe('Calculator', () => {
+  beforeEach(() => {
+    vi.spyOn(calculatorApi, 'fetchHistory').mockResolvedValue([]);
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
-    useCalculatorStore.getState().reset();
   });
 
   it('performs a calculation end-to-end and shows the result', async () => {
@@ -51,5 +53,20 @@ describe('Calculator', () => {
     await userEvent.click(screen.getByRole('button', { name: 'C' }));
 
     expect(screen.getByTestId('display')).toHaveTextContent('0');
+  });
+
+  it('starts a fresh expression after pressing a digit following a result', async () => {
+    vi.spyOn(calculatorApi, 'calculate').mockResolvedValue({ result: 5 });
+    renderWithClient(<Calculator />);
+
+    await userEvent.click(screen.getByRole('button', { name: '2' }));
+    await userEvent.click(screen.getByRole('button', { name: '+' }));
+    await userEvent.click(screen.getByRole('button', { name: '3' }));
+    await userEvent.click(screen.getByRole('button', { name: '=' }));
+    await waitFor(() => expect(screen.getByTestId('display')).toHaveTextContent('5'));
+
+    await userEvent.click(screen.getByRole('button', { name: '9' }));
+
+    expect(screen.getByTestId('display')).toHaveTextContent('9');
   });
 });

@@ -6,16 +6,25 @@ import { Keypad } from './Keypad';
 describe('Keypad', () => {
   it('calls onDigit when a digit button is clicked', async () => {
     const onDigit = vi.fn();
-    render(<Keypad onDigit={onDigit} onOperation={vi.fn()} onEquals={vi.fn()} onClear={vi.fn()} />);
+    render(<Keypad onDigit={onDigit} onDecimal={vi.fn()} onOperation={vi.fn()} onEquals={vi.fn()} onClear={vi.fn()} />);
 
     await userEvent.click(screen.getByRole('button', { name: '7' }));
 
     expect(onDigit).toHaveBeenCalledWith('7');
   });
 
+  it('calls onDecimal when the decimal button is clicked', async () => {
+    const onDecimal = vi.fn();
+    render(<Keypad onDigit={vi.fn()} onDecimal={onDecimal} onOperation={vi.fn()} onEquals={vi.fn()} onClear={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: '.' }));
+
+    expect(onDecimal).toHaveBeenCalled();
+  });
+
   it('calls onOperation with ADD when + is clicked', async () => {
     const onOperation = vi.fn();
-    render(<Keypad onDigit={vi.fn()} onOperation={onOperation} onEquals={vi.fn()} onClear={vi.fn()} />);
+    render(<Keypad onDigit={vi.fn()} onDecimal={vi.fn()} onOperation={onOperation} onEquals={vi.fn()} onClear={vi.fn()} />);
 
     await userEvent.click(screen.getByRole('button', { name: '+' }));
 
@@ -24,7 +33,7 @@ describe('Keypad', () => {
 
   it('calls onEquals when = is clicked', async () => {
     const onEquals = vi.fn();
-    render(<Keypad onDigit={vi.fn()} onOperation={vi.fn()} onEquals={onEquals} onClear={vi.fn()} />);
+    render(<Keypad onDigit={vi.fn()} onDecimal={vi.fn()} onOperation={vi.fn()} onEquals={onEquals} onClear={vi.fn()} />);
 
     await userEvent.click(screen.getByRole('button', { name: '=' }));
 
@@ -33,7 +42,7 @@ describe('Keypad', () => {
 
   it('calls onClear when C is clicked', async () => {
     const onClear = vi.fn();
-    render(<Keypad onDigit={vi.fn()} onOperation={vi.fn()} onEquals={vi.fn()} onClear={onClear} />);
+    render(<Keypad onDigit={vi.fn()} onDecimal={vi.fn()} onOperation={vi.fn()} onEquals={vi.fn()} onClear={onClear} />);
 
     await userEvent.click(screen.getByRole('button', { name: 'C' }));
 

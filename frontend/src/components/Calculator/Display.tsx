@@ -19,8 +19,10 @@ export function Display({ operandA, operation, operandB, result, error }: Displa
   return (
     <div
       data-testid="display"
-      className={`w-full rounded-md p-4 text-right text-2xl font-mono break-all ${
-        error ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-900'
+      className={`w-full rounded-md border-2 p-4 text-right text-2xl font-mono break-all ${
+        error
+          ? 'border-red-900 bg-red-950 text-red-300'
+          : 'border-lime-900 bg-lime-100 text-neutral-900'
       }`}
     >
       {content}
