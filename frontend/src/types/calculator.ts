@@ -28,3 +28,12 @@ export const UNARY_OPERATIONS: readonly OperationType[] = ['SQRT'];
 export function isUnaryOperation(operation: OperationType): boolean {
   return UNARY_OPERATIONS.includes(operation);
 }
+
+export interface HistoryEntry {
+  id: number;
+  operation: OperationType;
+  operandA: number;
+  operandB: number | null;
+  result: number;
+  createdAt: string;
+}
