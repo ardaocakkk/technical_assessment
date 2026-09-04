@@ -4,3 +4,11 @@ server:
 spring:
   application:
     name: calculator
+  datasource:
+    url: jdbc:postgresql://localhost:5432/calculator
+    username: calculator
+    password: calculator
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
