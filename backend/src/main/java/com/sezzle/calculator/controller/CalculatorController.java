@@ -33,7 +33,13 @@ public class CalculatorController {
         log.info("Received calculate request: operation={}", request.getOperation());
         BigDecimal result = calculatorService.calculate(request);
         if (clientId != null) {
-            calculationHistoryService.save(clientId, request, result);
+            // History persistence is a side benefit, not part of the core contract: a
+            // database failure must never turn a successful calculation into a 500.
+            try {
+                calculationHistoryService.save(clientId, request, result);
+            } catch (Exception ex) {
+                log.warn("Failed to save calculation history for clientId={}: {}", clientId, ex.getMessage());
+            }
         }
         log.info("Calculation succeeded: operation={} result={}", request.getOperation(), result);
         return ResponseEntity.ok(new CalculationResponse(result));

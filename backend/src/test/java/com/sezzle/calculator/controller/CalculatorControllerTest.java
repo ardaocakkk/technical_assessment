@@ -20,6 +20,7 @@ import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -165,5 +166,19 @@ class CalculatorControllerTest {
                 .andExpect(status().isOk());
 
         verify(calculationHistoryService, never()).save(any(), any(), any());
+    }
+
+    @Test
+    void returnsSuccessfulResultEvenWhenHistorySaveFails() throws Exception {
+        when(calculatorService.calculate(any())).thenReturn(new BigDecimal("5"));
+        doThrow(new RuntimeException("db down")).when(calculationHistoryService).save(any(), any(), any());
+
+        mockMvc.perform(post("/api/calculate")
+                        .header("X-Client-Id", "client-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("operation", "ADD", "operandA", 2, "operandB", 3))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value(5));
     }
 }

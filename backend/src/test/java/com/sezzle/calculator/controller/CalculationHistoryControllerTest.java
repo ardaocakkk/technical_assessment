@@ -13,6 +13,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 
 import static org.mockito.Mockito.when;
@@ -31,16 +32,32 @@ class CalculationHistoryControllerTest {
 
     @Test
     void returnsHistoryForValidClientId() throws Exception {
-        CalculationHistory entry = CalculationHistory.builder()
+        CalculationHistory newest = CalculationHistory.builder()
+                .id(2L).clientId("client-1").operation("SQRT")
+                .operandA(new BigDecimal("9")).operandB(null)
+                .result(new BigDecimal("3"))
+                .createdAt(Instant.parse("2026-01-02T03:04:05Z")).build();
+        CalculationHistory older = CalculationHistory.builder()
                 .id(1L).clientId("client-1").operation("ADD")
                 .operandA(new BigDecimal("2")).operandB(new BigDecimal("3"))
-                .result(new BigDecimal("5")).build();
-        when(calculationHistoryService.getLatest("client-1")).thenReturn(List.of(entry));
+                .result(new BigDecimal("5"))
+                .createdAt(Instant.parse("2026-01-01T00:00:00Z")).build();
+        when(calculationHistoryService.getLatest("client-1")).thenReturn(List.of(newest, older));
 
         mockMvc.perform(get("/api/history").header("X-Client-Id", "client-1"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].operation").value("ADD"))
-                .andExpect(jsonPath("$[0].result").value(5));
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].id").value(2))
+                .andExpect(jsonPath("$[0].operation").value("SQRT"))
+                .andExpect(jsonPath("$[0].operandA").value(9))
+                .andExpect(jsonPath("$[0].operandB").doesNotExist())
+                .andExpect(jsonPath("$[0].result").value(3))
+                .andExpect(jsonPath("$[0].createdAt").value("2026-01-02T03:04:05Z"))
+                .andExpect(jsonPath("$[1].id").value(1))
+                .andExpect(jsonPath("$[1].operation").value("ADD"))
+                .andExpect(jsonPath("$[1].operandB").value(3))
+                .andExpect(jsonPath("$[1].result").value(5))
+                .andExpect(jsonPath("$[1].createdAt").value("2026-01-01T00:00:00Z"));
     }
 
     @Test
