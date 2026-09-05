@@ -45,6 +45,12 @@ function appendDecimal(current: string): string {
   return current === '' ? '0.' : current + '.';
 }
 
+/** True for an operand that isn't a usable number yet — either untouched, or just a
+ * lone leading minus sign with no digits typed after it. */
+function isIncompleteOperand(value: string): boolean {
+  return value === '' || value === '-';
+}
+
 function buildRequest(state: State): CalculationRequest {
   const unary = state.operation !== null && isUnaryOperation(state.operation);
   return {
@@ -85,10 +91,20 @@ function reducer(state: State, action: Action): State {
     }
 
     case 'OPERATION': {
-      if (state.operandA === '') {
+      // A leading minus when the operand currently being entered is still empty means
+      // "negative number", not "subtract" — there's nothing yet to subtract from.
+      if (action.operation === 'SUBTRACT') {
+        if (state.operation === null && state.operandA === '') {
+          return { ...state, operandA: '-' };
+        }
+        if (state.operation !== null && state.operandB === '') {
+          return { ...state, operandB: '-' };
+        }
+      }
+      if (isIncompleteOperand(state.operandA)) {
         return state;
       }
-      if (state.phase === 'input' && state.operation !== null && state.operandB !== '') {
+      if (state.phase === 'input' && state.operation !== null && !isIncompleteOperand(state.operandB)) {
         return {
           ...state,
           pendingRequest: buildRequest(state),
@@ -96,15 +112,15 @@ function reducer(state: State, action: Action): State {
           operation: action.operation,
         };
       }
-      return { ...state, operation: action.operation, phase: 'input' };
+      return { ...state, operation: action.operation, phase: 'input', operandB: '' };
     }
 
     case 'EQUALS': {
-      if (state.operation === null || state.operandA === '') {
+      if (state.operation === null || isIncompleteOperand(state.operandA)) {
         return state;
       }
       const unary = isUnaryOperation(state.operation);
-      if (!unary && state.operandB === '') {
+      if (!unary && isIncompleteOperand(state.operandB)) {
         return state;
       }
       return { ...state, pendingRequest: buildRequest(state), pendingIsChain: false };

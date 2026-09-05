@@ -122,6 +122,22 @@ describe('Calculator', () => {
     expect(screen.getByTestId('display')).toHaveTextContent('0');
   });
 
+  it('allows entering a negative first operand', async () => {
+    vi.spyOn(calculatorApi, 'calculate').mockResolvedValue({ result: -2 });
+    renderWithClient(<Calculator />);
+
+    await userEvent.click(screen.getByRole('button', { name: '-' }));
+    expect(screen.getByTestId('display')).toHaveTextContent('-');
+
+    await userEvent.click(screen.getByRole('button', { name: '5' }));
+    await userEvent.click(screen.getByRole('button', { name: '+' }));
+    await userEvent.click(screen.getByRole('button', { name: '3' }));
+    await userEvent.click(screen.getByRole('button', { name: '=' }));
+
+    await waitFor(() => expect(screen.getByTestId('display')).toHaveTextContent('-2'));
+    expect(calculatorApi.calculate).toHaveBeenCalledWith({ operation: 'ADD', operandA: -5, operandB: 3 });
+  });
+
   it('supports decimal points and the multiply/divide symbols via the keyboard', async () => {
     vi.spyOn(calculatorApi, 'calculate').mockResolvedValue({ result: 20 });
     renderWithClient(<Calculator />);

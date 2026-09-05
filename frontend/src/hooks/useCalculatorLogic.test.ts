@@ -87,6 +87,55 @@ describe('useCalculatorLogic', () => {
     });
   });
 
+  it('treats a leading minus as a negative sign, not subtraction, when operandA is empty', () => {
+    const { result } = renderHook(() => useCalculatorLogic());
+
+    act(() => {
+      result.current.selectOperation('SUBTRACT');
+    });
+
+    expect(result.current.operandA).toBe('-');
+    expect(result.current.operation).toBeNull();
+
+    act(() => {
+      result.current.enterDigit('5');
+    });
+
+    expect(result.current.operandA).toBe('-5');
+  });
+
+  it('treats a leading minus as a negative sign for operandB too', () => {
+    const { result } = renderHook(() => useCalculatorLogic());
+
+    act(() => {
+      result.current.enterDigit('9');
+      result.current.selectOperation('ADD');
+      result.current.selectOperation('SUBTRACT');
+    });
+
+    expect(result.current.operandB).toBe('-');
+    expect(result.current.operation).toBe('ADD');
+
+    act(() => {
+      result.current.enterDigit('3');
+    });
+
+    expect(result.current.operandB).toBe('-3');
+  });
+
+  it('does not submit or start an operation with a bare sign as the operand', () => {
+    const { result } = renderHook(() => useCalculatorLogic());
+
+    act(() => {
+      result.current.selectOperation('SUBTRACT');
+      result.current.selectOperation('ADD');
+      result.current.submit();
+    });
+
+    expect(result.current.operation).toBeNull();
+    expect(result.current.pendingRequest).toBeNull();
+  });
+
   it('does not request a calculation for an incomplete expression', () => {
     const { result } = renderHook(() => useCalculatorLogic());
 
