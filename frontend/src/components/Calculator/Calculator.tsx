@@ -70,7 +70,7 @@ export function Calculator() {
   }, []);
 
   return (
-    <div className="mx-auto mt-10 w-full max-w-xs rounded-2xl bg-neutral-900 p-4 shadow-2xl sm:max-w-sm">
+    <div className="mx-auto mt-6 w-full max-w-xs rounded-2xl bg-neutral-900 p-4 shadow-2xl sm:mt-10 sm:max-w-sm">
       <div className="mb-3 text-center text-[10px] tracking-widest text-neutral-400">
         fx-CALC · SOLAR
       </div>
