@@ -57,6 +57,12 @@ cd frontend
 npm test
 ```
 
+Frontend coverage report (Vitest + `@vitest/coverage-v8`; HTML report at `frontend/coverage/index.html`):
+```bash
+cd frontend
+npm run test:coverage
+```
+
 ## API usage
 
 `POST /api/calculate`
