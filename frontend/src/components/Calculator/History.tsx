@@ -1,4 +1,4 @@
-import type { HistoryEntry } from '../../types/calculator';
+import { OPERATION_SYMBOLS, type HistoryEntry } from '../../types/calculator';
 
 interface HistoryProps {
   entries: HistoryEntry[];
@@ -27,7 +27,7 @@ export function History({ entries, error = null }: HistoryProps) {
       {entries.map((entry) => (
         <li key={entry.id} className="flex justify-between border-b border-neutral-700 py-1">
           <span>
-            {entry.operandA} {entry.operation} {entry.operandB ?? ''} = {entry.result}
+            {entry.operandA} {OPERATION_SYMBOLS[entry.operation]} {entry.operandB ?? ''} = {entry.result}
           </span>
           <span className="text-neutral-500">{new Date(entry.createdAt).toLocaleTimeString()}</span>
         </li>

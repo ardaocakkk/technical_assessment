@@ -16,7 +16,7 @@ describe('History', () => {
         ]}
       />,
     );
-    expect(screen.getByTestId('history')).toHaveTextContent('2 ADD 3 = 5');
+    expect(screen.getByTestId('history')).toHaveTextContent('2 + 3 = 5');
   });
 
   it('renders an error message instead of the list when the fetch failed', () => {
@@ -31,7 +31,7 @@ describe('History', () => {
 
     const history = screen.getByTestId('history');
     expect(history).toHaveTextContent('Could not load history');
-    expect(history).not.toHaveTextContent('2 ADD 3 = 5');
+    expect(history).not.toHaveTextContent('2 + 3 = 5');
     expect(history).not.toHaveTextContent('No calculations yet.');
   });
 
